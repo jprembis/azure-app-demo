@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 )
 
@@ -113,9 +114,13 @@ func (l *Log) indexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	port, ok := os.LookupEnv("HTTP_PLATFORM_PORT")
+	if !ok {
+		port = "8080"
+	}
 	l := NewLog()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", l.indexHandler)
-	err := http.ListenAndServe(":8080", mux)
+	err := http.ListenAndServe(":"+port, mux)
 	log.Fatal(err)
 }
