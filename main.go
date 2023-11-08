@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -42,6 +43,9 @@ func (l *Log) Read(key uint64) (Record, error) {
 	return l.records[key], nil
 }
 
+type Listing struct {
+	Records []Record `json:"records"`
+}
 type RequestFromWriter struct {
 	Record Record `json:"record"`
 }
@@ -79,6 +83,14 @@ func (l *Log) handleWrite(w http.ResponseWriter, r *http.Request) {
 func (l *Log) handleRead(w http.ResponseWriter, r *http.Request) {
 	var req RequestFromReader
 	err := json.NewDecoder(r.Body).Decode(&req)
+	if err == io.EOF {
+		if len(l.records) > 0 {
+			res := Listing{Records: l.records}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(res)
+		}
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
