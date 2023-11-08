@@ -8,11 +8,11 @@ A JSON over HTTP server hosted at <https://kloda.azurewebsites.net> that exposes
 
 Append a record with a Base64-encoded value:
 
-	$ curl -X POST https://kloda.azurewebsites.net -d '{"record":{"value":"SGVsbG8gQXp1cmUK"}}'
+	curl -X POST https://kloda.azurewebsites.net -d '{"record":{"value":"SGVsbG8gQXp1cmUK"}}'
 
 Lookup a record by index:
 
-	$ curl -X GET https://kloda.azurewebsites.net -d '{"key":0}'
+	curl -X GET https://kloda.azurewebsites.net -d '{"key":0}'
 
 ## Sources
 
