@@ -10,21 +10,43 @@ import (
 	"sync"
 )
 
-type Record struct {
+type record struct {
 	Key   uint64 `json:"key"`
 	Value []byte `json:"value"`
 }
 
-type Log struct {
+type memLog struct {
 	mu      sync.Mutex
-	records []Record
+	records []record
 }
 
-func NewLog() *Log {
-	return &Log{}
+type listing struct {
+	Records []record `json:"records"`
 }
 
-func (l *Log) Write(r Record) (uint64, error) {
+type appendRequest struct {
+	Record record `json:"record"`
+}
+
+type appendResponse struct {
+	Key uint64 `json:"key"`
+}
+
+type getRequest struct {
+	Key uint64 `json:"key"`
+}
+
+type getResponse struct {
+	Record record `json:"record"`
+}
+
+var errKeyNotFound = fmt.Errorf("key not found")
+
+func newMemLog() *memLog {
+	return &memLog{}
+}
+
+func (l *memLog) append(r record) (uint64, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	r.Key = uint64(len(l.records)) // = index of r
@@ -32,46 +54,28 @@ func (l *Log) Write(r Record) (uint64, error) {
 	return r.Key, nil
 }
 
-var ErrKeyNotFound = fmt.Errorf("key not found")
-
-func (l *Log) Read(key uint64) (Record, error) {
+func (l *memLog) get(key uint64) (record, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if key >= uint64(len(l.records)) {
-		return Record{}, ErrKeyNotFound
+		return record{}, errKeyNotFound
 	}
 	return l.records[key], nil
 }
 
-type Listing struct {
-	Records []Record `json:"records"`
-}
-type RequestFromWriter struct {
-	Record Record `json:"record"`
-}
-type ResponseToWriter struct {
-	Key uint64 `json:"key"`
-}
-type RequestFromReader struct {
-	Key uint64 `json:"key"`
-}
-type ResponseToReader struct {
-	Record Record `json:"record"`
-}
-
-func (l *Log) handleWrite(w http.ResponseWriter, r *http.Request) {
-	var req RequestFromWriter
+func (l *memLog) handleAppend(w http.ResponseWriter, r *http.Request) {
+	var req appendRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	key, err := l.Write(req.Record)
+	key, err := l.append(req.Record)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	res := ResponseToWriter{Key: key}
+	res := appendResponse{Key: key}
 	w.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(w).Encode(res)
 	if err != nil {
@@ -80,12 +84,12 @@ func (l *Log) handleWrite(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (l *Log) handleRead(w http.ResponseWriter, r *http.Request) {
-	var req RequestFromReader
+func (l *memLog) handleGet(w http.ResponseWriter, r *http.Request) {
+	var req getRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err == io.EOF {
 		if len(l.records) > 0 {
-			res := Listing{Records: l.records}
+			res := listing{Records: l.records}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(res)
 		}
@@ -95,8 +99,8 @@ func (l *Log) handleRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	record, err := l.Read(req.Key)
-	if err == ErrKeyNotFound {
+	record, err := l.get(req.Key)
+	if err == errKeyNotFound {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -104,7 +108,7 @@ func (l *Log) handleRead(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	res := ResponseToReader{Record: record}
+	res := getResponse{Record: record}
 	w.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(w).Encode(res)
 	if err != nil {
@@ -113,12 +117,12 @@ func (l *Log) handleRead(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (l *Log) indexHandler(w http.ResponseWriter, r *http.Request) {
+func (l *memLog) indexHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		l.handleRead(w, r)
+		l.handleGet(w, r)
 	case http.MethodPost:
-		l.handleWrite(w, r)
+		l.handleAppend(w, r)
 	default:
 		w.Header().Set("Allow", "GET, POST")
 		http.Error(w, "Method Not Allowed", 405)
@@ -130,7 +134,7 @@ func main() {
 	if !ok {
 		port = "8080"
 	}
-	l := NewLog()
+	l := newMemLog()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", l.indexHandler)
 	err := http.ListenAndServe(":"+port, mux)
